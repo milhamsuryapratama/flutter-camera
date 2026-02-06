@@ -16,15 +16,25 @@ class CameraService {
 
   Future<String> detectCamera() async {
     try {
+      print('Calling gphoto2 --auto-detect...');
+      print('CAMLIBS: ${_gphoto2Env?["CAMLIBS"]}');
+      print('IOLIBS: ${_gphoto2Env?["IOLIBS"]}');
+
       final result = await Process.run('gphoto2', [
         '--auto-detect',
       ], environment: _gphoto2Env);
+
+      print('Exit code: ${result.exitCode}');
+      print('stdout: ${result.stdout}');
+      print('stderr: ${result.stderr}');
+
       if (result.exitCode == 0) {
         return result.stdout.toString();
       } else {
         return 'Error: ${result.stderr}';
       }
     } catch (e) {
+      print('Exception: $e');
       return 'Failed to execute gphoto2: $e';
     }
   }
