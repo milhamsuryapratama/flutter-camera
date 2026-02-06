@@ -33,7 +33,7 @@ class CameraService {
         final directory = Directory.systemTemp;
         // Use a timestamp to ensure unique filename
         final filename = 'capture_${DateTime.now().millisecondsSinceEpoch}.jpg';
-        final filePath = '${directory.path}/$filename';
+        final filePath = '${directory.path}${Platform.pathSeparator}$filename';
 
         // --capture-image-and-download takes a picture and downloads it to the PC
         // --filename allows specifying where to save it
