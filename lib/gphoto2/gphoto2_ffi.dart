@@ -203,8 +203,8 @@ class GPhoto2 {
         final libDir = "$exeDir\\lib";
 
         // Use helper to set vars if directories exist
-        _setEnvIfDirExists("CAMLIBS", "$libDir\\gphoto2");
-        _setEnvIfDirExists("IOLIBS", "$libDir\\gphoto2_port");
+        _setEnvIfDirExists("CAMLIBS", "$libDir\\libgphoto2");
+        _setEnvIfDirExists("IOLIBS", "$libDir\\libgphoto2_port");
 
         _lib = DynamicLibrary.open(_dllName);
         // Load the port library separately for port functions
