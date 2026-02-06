@@ -7,7 +7,7 @@ class CameraService {
     if (!Platform.isWindows) return null;
     return {
       ...Platform.environment,
-      'CAMLIBS': 'C:\\msys64\\mingw64\\lib\\libgphoto2\\2.5.31',
+      'CAMLIBS': 'C:\\msys64\\mingw64\\lib\\libgphoto2\\2.5.33',
       'IOLIBS': 'C:\\msys64\\mingw64\\lib\\libgphoto2_port\\0.12.2',
     };
   }
