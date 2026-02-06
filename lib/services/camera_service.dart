@@ -202,6 +202,23 @@ class CameraService {
           frameCount++;
           if (frameCount <= 5) {
             print('Frame $frameCount: ${jpegData.length} bytes');
+            print(
+              'First 10 bytes: ${jpegData.take(10).map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}',
+            );
+            print(
+              'Last 10 bytes: ${jpegData.skip(jpegData.length - 10).map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}',
+            );
+
+            // Save first frame to Desktop for inspection
+            if (frameCount == 1) {
+              try {
+                final debugPath = 'D:\\debug_preview_frame.jpg';
+                await File(debugPath).writeAsBytes(jpegData);
+                print('Saved debug frame to: $debugPath');
+              } catch (e) {
+                print('Failed to save debug frame: $e');
+              }
+            }
           }
 
           yield jpegData;
