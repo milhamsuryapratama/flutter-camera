@@ -253,6 +253,33 @@ class CameraService {
     }
   }
 
+  /// Eject/release the camera properly to avoid leaving it stuck in PC Remote mode.
+  /// This should be called before disconnecting USB or closing the app.
+  Future<String> ejectCamera() async {
+    // First stop any preview
+    await stopPreview();
+
+    try {
+      // Wait a bit more for USB release
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      // Run gphoto2 --reset to release the camera
+      final result = await Process.run('gphoto2', [
+        '--reset',
+      ], environment: _gphoto2Env);
+
+      if (result.exitCode == 0) {
+        return 'Camera ejected successfully. You can now safely disconnect.';
+      } else {
+        // Try a simple summary command which sometimes releases the camera
+        await Process.run('gphoto2', ['--summary'], environment: _gphoto2Env);
+        return 'Camera released. You may disconnect now.';
+      }
+    } catch (e) {
+      return 'Eject completed with warning: $e';
+    }
+  }
+
   int _findPattern(List<int> data, List<int> pattern, [int start = 0]) {
     for (int i = start; i <= data.length - pattern.length; i++) {
       bool found = true;

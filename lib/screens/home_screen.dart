@@ -135,6 +135,29 @@ class _HomeScreenState extends State<HomeScreen> {
     await _startPreview();
   }
 
+  Future<void> _ejectCamera() async {
+    setState(() {
+      _isLoading = true;
+      _status = 'Ejecting camera...';
+      _previewStream = null;
+    });
+
+    try {
+      final result = await _cameraService.ejectCamera();
+      if (mounted) {
+        setState(() {
+          _status = result;
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // Determine if we are in "Review Mode" (Image shown, no live view)
@@ -267,6 +290,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     onPressed: _isLoading ? null : _connectCamera,
                     icon: const Icon(Icons.refresh),
                     label: const Text('Reconnect'),
+                  ),
+                  const SizedBox(width: 20),
+                  TextButton.icon(
+                    onPressed: _isLoading ? null : _ejectCamera,
+                    icon: const Icon(Icons.eject, color: Colors.orange),
+                    label: const Text('Eject Camera'),
+                    style: TextButton.styleFrom(foregroundColor: Colors.orange),
                   ),
                 ],
               ),
