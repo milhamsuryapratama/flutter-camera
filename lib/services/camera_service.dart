@@ -147,23 +147,31 @@ class CameraService {
   Process? _previewProcess;
   bool _isPreviewing = false;
 
+  /// Starts live preview using --capture-movie which streams MJPEG frames.
   Stream<List<int>> startPreview() async* {
     if (_isPreviewing) return;
     _isPreviewing = true;
 
     try {
+      print('Starting preview with capture-movie...');
       _previewProcess = await Process.start('gphoto2', [
         '--capture-movie',
         '--stdout',
       ], environment: _gphoto2Env);
 
       final buffer = <int>[];
-      final startMarker = [0xFF, 0xD8];
-      final endMarker = [0xFF, 0xD9];
+      final startMarker = [0xFF, 0xD8]; // JPEG start
+      final endMarker = [0xFF, 0xD9]; // JPEG end
+      int frameCount = 0;
 
       await for (final chunk in _previewProcess!.stdout) {
         if (!_isPreviewing) break;
         buffer.addAll(chunk);
+
+        // Debug: log buffer size periodically
+        if (buffer.length > 10000 && frameCount == 0) {
+          print('Buffer size: ${buffer.length}, waiting for first frame...');
+        }
 
         while (true) {
           final startIndex = _findPattern(buffer, startMarker);
@@ -177,7 +185,7 @@ class CameraService {
             break;
           }
 
-          final endIndex = _findPattern(buffer, endMarker, startIndex);
+          final endIndex = _findPattern(buffer, endMarker, startIndex + 2);
           if (endIndex == -1) {
             // We have a start but no end, wait for more data
             // Remove everything before start to save memory
@@ -194,6 +202,11 @@ class CameraService {
           final frameEnd = endIndex + 2;
           final jpegData = buffer.sublist(startIndex, frameEnd);
 
+          frameCount++;
+          if (frameCount <= 3) {
+            print('Frame $frameCount captured: ${jpegData.length} bytes');
+          }
+
           yield jpegData;
 
           // Remove the processed frame from buffer
@@ -201,6 +214,14 @@ class CameraService {
           buffer.clear();
           buffer.addAll(remaining);
         }
+      }
+
+      // Check stderr for errors
+      final stderrOutput = await _previewProcess!.stderr
+          .transform(SystemEncoding().decoder)
+          .join();
+      if (stderrOutput.isNotEmpty) {
+        print('Preview stderr: $stderrOutput');
       }
     } catch (e) {
       print('Preview error: $e');
