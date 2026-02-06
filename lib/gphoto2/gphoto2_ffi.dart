@@ -129,7 +129,10 @@ typedef GPResultAsStringDart = Pointer<Utf8> Function(int result);
 
 class GPhoto2 {
   late DynamicLibrary _lib;
+  late DynamicLibrary _libPort;
+
   final String _dllName = 'libgphoto2-6.dll';
+  final String _dllPortName = 'libgphoto2_port-12.dll';
 
   // Function pointers
   late GPContextNewDart _gpContextNew;
@@ -168,9 +171,20 @@ class GPhoto2 {
     try {
       if (Platform.isWindows) {
         _lib = DynamicLibrary.open(_dllName);
+        // Load the port library separately for port functions
+        try {
+          _libPort = DynamicLibrary.open(_dllPortName);
+        } catch (e) {
+          _statusMessage =
+              "Loaded libgphoto2, but failed to load $_dllPortName: $e";
+          _isLoaded = false;
+          return;
+        }
       } else if (Platform.isMacOS) {
         try {
           _lib = DynamicLibrary.open('libgphoto2.dylib');
+          // On Mac/Linux, symbols are usually visible globally or in same dylib
+          _libPort = _lib;
         } catch (_) {
           _statusMessage = "Mac: Could not load libgphoto2.dylib";
           return;
@@ -225,25 +239,25 @@ class GPhoto2 {
             'gp_file_get_data_and_size',
           );
 
-      // Port Info List
-      _gpPortInfoListNew = _lib
+      // Port Info List (Look up in libPort)
+      _gpPortInfoListNew = _libPort
           .lookupFunction<GPPortInfoListNewC, GPPortInfoListNewDart>(
             'gp_port_info_list_new',
           );
-      _gpPortInfoListLoad = _lib
+      _gpPortInfoListLoad = _libPort
           .lookupFunction<GPPortInfoListLoadC, GPPortInfoListLoadDart>(
             'gp_port_info_list_load',
           );
-      _gpPortInfoListCount = _lib
+      _gpPortInfoListCount = _libPort
           .lookupFunction<GPPortInfoListCountC, GPPortInfoListCountDart>(
             'gp_port_info_list_count',
           );
-      _gpPortInfoListFree = _lib
+      _gpPortInfoListFree = _libPort
           .lookupFunction<GPPortInfoListFreeC, GPPortInfoListFreeDart>(
             'gp_port_info_list_free',
           );
 
-      // Utilities
+      // Utilities - gp_result_as_string is in libgphoto2
       _gpResultAsString = _lib
           .lookupFunction<GPResultAsStringC, GPResultAsStringDart>(
             'gp_result_as_string',
