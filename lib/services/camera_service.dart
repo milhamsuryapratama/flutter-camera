@@ -199,29 +199,18 @@ class CameraService {
           final frameEnd = endIndex + 2;
           final jpegData = buffer.sublist(startIndex, frameEnd);
 
+          // Fix Windows CRLF corruption: Windows converts 0x0A to 0x0D 0x0A in stdout
+          // We need to reverse this by removing 0x0D before 0x0A
+          final fixedData = _fixWindowsCrlfCorruption(jpegData);
+
           frameCount++;
           if (frameCount <= 5) {
-            print('Frame $frameCount: ${jpegData.length} bytes');
             print(
-              'First 10 bytes: ${jpegData.take(10).map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}',
+              'Frame $frameCount: ${fixedData.length} bytes (raw: ${jpegData.length})',
             );
-            print(
-              'Last 10 bytes: ${jpegData.skip(jpegData.length - 10).map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}',
-            );
-
-            // Save first frame to Desktop for inspection
-            if (frameCount == 1) {
-              try {
-                final debugPath = 'D:\\debug_preview_frame.jpg';
-                await File(debugPath).writeAsBytes(jpegData);
-                print('Saved debug frame to: $debugPath');
-              } catch (e) {
-                print('Failed to save debug frame: $e');
-              }
-            }
           }
 
-          yield jpegData;
+          yield fixedData;
 
           final remaining = buffer.sublist(frameEnd);
           buffer.clear();
@@ -263,5 +252,22 @@ class CameraService {
       if (found) return i;
     }
     return -1;
+  }
+
+  /// Fix Windows stdout CRLF corruption.
+  /// Windows converts 0x0A (LF) to 0x0D 0x0A (CRLF) in text-mode stdout.
+  /// This breaks binary data. We reverse it by removing 0x0D before 0x0A.
+  List<int> _fixWindowsCrlfCorruption(List<int> data) {
+    if (!Platform.isWindows) return data;
+
+    final result = <int>[];
+    for (int i = 0; i < data.length; i++) {
+      // Skip 0x0D if it's followed by 0x0A (Windows inserted it)
+      if (data[i] == 0x0D && i + 1 < data.length && data[i + 1] == 0x0A) {
+        continue; // Skip the CR, the LF will be added next iteration
+      }
+      result.add(data[i]);
+    }
+    return result;
   }
 }
