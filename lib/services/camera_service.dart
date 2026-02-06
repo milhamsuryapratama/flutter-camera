@@ -147,86 +147,56 @@ class CameraService {
   Process? _previewProcess;
   bool _isPreviewing = false;
 
-  /// Starts live preview using --capture-movie which streams MJPEG frames.
+  /// Starts live preview using --capture-preview in a loop.
+  /// This is more compatible than --capture-movie which has I/O issues on Windows.
   Stream<List<int>> startPreview() async* {
     if (_isPreviewing) return;
     _isPreviewing = true;
 
     try {
-      print('Starting preview with capture-movie...');
-      _previewProcess = await Process.start('gphoto2', [
-        '--capture-movie',
-        '--stdout',
-      ], environment: _gphoto2Env);
+      print('Starting preview with capture-preview loop...');
 
-      final buffer = <int>[];
-      final startMarker = [0xFF, 0xD8]; // JPEG start
-      final endMarker = [0xFF, 0xD9]; // JPEG end
-      int frameCount = 0;
+      // Use capture-preview in a loop instead of capture-movie
+      // This is slower but more compatible on Windows
+      while (_isPreviewing) {
+        final tempDir = Directory.systemTemp;
+        final previewPath =
+            '${tempDir.path}${Platform.pathSeparator}preview_temp.jpg';
 
-      await for (final chunk in _previewProcess!.stdout) {
+        final result = await Process.run('gphoto2', [
+          '--capture-preview',
+          '--filename',
+          previewPath,
+          '--force-overwrite',
+        ], environment: _gphoto2Env);
+
         if (!_isPreviewing) break;
-        buffer.addAll(chunk);
 
-        // Debug: log buffer size periodically
-        if (buffer.length > 10000 && frameCount == 0) {
-          print('Buffer size: ${buffer.length}, waiting for first frame...');
+        if (result.exitCode == 0) {
+          final file = File(previewPath);
+          if (await file.exists()) {
+            final bytes = await file.readAsBytes();
+            if (bytes.isNotEmpty) {
+              yield bytes;
+            }
+          }
+        } else {
+          final stderr = result.stderr.toString();
+          if (stderr.isNotEmpty) {
+            print('Preview capture failed: $stderr');
+          }
+          // Small delay before retry on error
+          await Future.delayed(const Duration(milliseconds: 500));
         }
 
-        while (true) {
-          final startIndex = _findPattern(buffer, startMarker);
-          if (startIndex == -1) {
-            // Keep the last few bytes in case the marker is split across chunks
-            if (buffer.length > 2) {
-              final remaining = buffer.sublist(buffer.length - 2);
-              buffer.clear();
-              buffer.addAll(remaining);
-            }
-            break;
-          }
-
-          final endIndex = _findPattern(buffer, endMarker, startIndex + 2);
-          if (endIndex == -1) {
-            // We have a start but no end, wait for more data
-            // Remove everything before start to save memory
-            if (startIndex > 0) {
-              final remaining = buffer.sublist(startIndex);
-              buffer.clear();
-              buffer.addAll(remaining);
-            }
-            break;
-          }
-
-          // We have a full frame!
-          // Include endMarker in the frame (endIndex points to 0xFF, so we need +2)
-          final frameEnd = endIndex + 2;
-          final jpegData = buffer.sublist(startIndex, frameEnd);
-
-          frameCount++;
-          if (frameCount <= 3) {
-            print('Frame $frameCount captured: ${jpegData.length} bytes');
-          }
-
-          yield jpegData;
-
-          // Remove the processed frame from buffer
-          final remaining = buffer.sublist(frameEnd);
-          buffer.clear();
-          buffer.addAll(remaining);
-        }
-      }
-
-      // Check stderr for errors
-      final stderrOutput = await _previewProcess!.stderr
-          .transform(SystemEncoding().decoder)
-          .join();
-      if (stderrOutput.isNotEmpty) {
-        print('Preview stderr: $stderrOutput');
+        // Small delay between frames to avoid overwhelming the camera
+        // Adjust this for your desired frame rate
+        await Future.delayed(const Duration(milliseconds: 100));
       }
     } catch (e) {
       print('Preview error: $e');
     } finally {
-      await stopPreview();
+      _isPreviewing = false;
     }
   }
 
