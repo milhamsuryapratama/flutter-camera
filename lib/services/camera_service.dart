@@ -161,16 +161,19 @@ class CameraService {
       int frameCount = 0;
       while (_isPreviewing) {
         final tempDir = Directory.systemTemp;
-        final previewPath =
-            '${tempDir.path}${Platform.pathSeparator}preview_temp.jpg';
+        // Use simple path construction to avoid issues
+        final previewPath = '${tempDir.path}\\preview_temp.jpg';
 
         print('Calling gphoto2 --capture-preview...');
+        print('Expected save path: $previewPath');
+
         final result = await Process.run('gphoto2', [
           '--capture-preview',
           '--filename',
           previewPath,
           '--force-overwrite',
         ], environment: _gphoto2Env);
+
         print('gphoto2 returned with exit code: ${result.exitCode}');
         print('stdout: ${result.stdout}');
         print('stderr: ${result.stderr}');
@@ -178,11 +181,20 @@ class CameraService {
         if (!_isPreviewing) break;
 
         if (result.exitCode == 0) {
+          // gphoto2 might save with thumb_ prefix, check both
           final file = File(previewPath);
-          final exists = await file.exists();
-          print('File exists: $exists, path: $previewPath');
-          if (exists) {
-            final bytes = await file.readAsBytes();
+          final thumbFile = File('${tempDir.path}\\thumb_preview_temp.jpg');
+
+          File? actualFile;
+          if (await file.exists()) {
+            actualFile = file;
+          } else if (await thumbFile.exists()) {
+            actualFile = thumbFile;
+            print('Found thumb_ prefixed file');
+          }
+
+          if (actualFile != null) {
+            final bytes = await actualFile.readAsBytes();
             print('File size: ${bytes.length} bytes');
             if (bytes.isNotEmpty) {
               frameCount++;
@@ -193,6 +205,11 @@ class CameraService {
             } else {
               print('File is empty!');
             }
+          } else {
+            // List files in temp to see what was created
+            print(
+              'File not found at expected path. Checking current directory...',
+            );
           }
         } else {
           final stderr = result.stderr.toString();
