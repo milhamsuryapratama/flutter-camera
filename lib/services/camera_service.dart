@@ -218,12 +218,14 @@ class CameraService {
         }
       }
 
-      // Check for errors
-      final stderrOutput = await _previewProcess!.stderr
-          .transform(SystemEncoding().decoder)
-          .join();
-      if (stderrOutput.isNotEmpty) {
-        print('Preview stderr: $stderrOutput');
+      // Check for errors (only if process still exists)
+      if (_previewProcess != null) {
+        final stderrOutput = await _previewProcess!.stderr
+            .transform(SystemEncoding().decoder)
+            .join();
+        if (stderrOutput.isNotEmpty) {
+          print('Preview stderr: $stderrOutput');
+        }
       }
     } catch (e) {
       print('Preview error: $e');
@@ -236,7 +238,18 @@ class CameraService {
     _isPreviewing = false;
     if (_previewProcess != null) {
       _previewProcess!.kill();
+      // Wait for the process to actually exit
+      try {
+        await _previewProcess!.exitCode.timeout(
+          const Duration(seconds: 2),
+          onTimeout: () => -1,
+        );
+      } catch (e) {
+        // Ignore timeout
+      }
       _previewProcess = null;
+      // Give camera USB interface time to fully release
+      await Future.delayed(const Duration(milliseconds: 1000));
     }
   }
 
