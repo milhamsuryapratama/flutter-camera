@@ -108,7 +108,25 @@ typedef GPFileGetDataAndSizeDart =
       Pointer<UnsignedLong> size,
     );
 
+// Port Info List
+typedef GPPortInfoListNewC = Int32 Function(Pointer<Pointer<Void>> list);
+typedef GPPortInfoListNewDart = int Function(Pointer<Pointer<Void>> list);
+
+typedef GPPortInfoListLoadC = Int32 Function(Pointer<Void> list);
+typedef GPPortInfoListLoadDart = int Function(Pointer<Void> list);
+
+typedef GPPortInfoListCountC = Int32 Function(Pointer<Void> list);
+typedef GPPortInfoListCountDart = int Function(Pointer<Void> list);
+
+typedef GPPortInfoListFreeC = Int32 Function(Pointer<Void> list);
+typedef GPPortInfoListFreeDart = int Function(Pointer<Void> list);
+
+// Utilities
+typedef GPResultAsStringC = Pointer<Utf8> Function(Int32 result);
+typedef GPResultAsStringDart = Pointer<Utf8> Function(int result);
+
 // --- Wrapper Class ---
+
 class GPhoto2 {
   late DynamicLibrary _lib;
   final String _dllName = 'libgphoto2-6.dll';
@@ -128,6 +146,13 @@ class GPhoto2 {
   late GPFileUnrefDart _gpFileUnref;
   late GPCameraFileGetDart _gpCameraFileGet;
   late GPFileGetDataAndSizeDart _gpFileGetDataAndSize;
+
+  late GPPortInfoListNewDart _gpPortInfoListNew;
+  late GPPortInfoListLoadDart _gpPortInfoListLoad;
+  late GPPortInfoListCountDart _gpPortInfoListCount;
+  late GPPortInfoListFreeDart _gpPortInfoListFree;
+
+  late GPResultAsStringDart _gpResultAsString;
 
   bool _isLoaded = false;
   String _statusMessage = "Not Initialized";
@@ -200,12 +225,65 @@ class GPhoto2 {
             'gp_file_get_data_and_size',
           );
 
+      // Port Info List
+      _gpPortInfoListNew = _lib
+          .lookupFunction<GPPortInfoListNewC, GPPortInfoListNewDart>(
+            'gp_port_info_list_new',
+          );
+      _gpPortInfoListLoad = _lib
+          .lookupFunction<GPPortInfoListLoadC, GPPortInfoListLoadDart>(
+            'gp_port_info_list_load',
+          );
+      _gpPortInfoListCount = _lib
+          .lookupFunction<GPPortInfoListCountC, GPPortInfoListCountDart>(
+            'gp_port_info_list_count',
+          );
+      _gpPortInfoListFree = _lib
+          .lookupFunction<GPPortInfoListFreeC, GPPortInfoListFreeDart>(
+            'gp_port_info_list_free',
+          );
+
+      // Utilities
+      _gpResultAsString = _lib
+          .lookupFunction<GPResultAsStringC, GPResultAsStringDart>(
+            'gp_result_as_string',
+          );
+
       _isLoaded = true;
       _statusMessage = "Library Loaded Successfully";
     } catch (e) {
       _statusMessage = "Failed to load library or symbols: $e";
       _isLoaded = false;
     }
+  }
+
+  // Utilities
+  String getResultAsString(int result) {
+    if (!_isLoaded) return "Library not loaded";
+    final ptr = _gpResultAsString(result);
+    // Note: The string returned by gp_result_as_string is static/const, do not free it.
+    return ptr.toDartString();
+  }
+
+  // Port operations
+  int newPortInfoList(Pointer<Pointer<Void>> list) {
+    if (!_isLoaded) return -1;
+    return _gpPortInfoListNew(list);
+  }
+
+  int loadPortInfoList(Pointer<Void> list) {
+    if (!_isLoaded) return -1;
+    return _gpPortInfoListLoad(list);
+  }
+
+  int countPortInfoList(Pointer<Void> list) {
+    if (!_isLoaded) return -1;
+    return _gpPortInfoListCount(list);
+  }
+
+  int freePortInfoList(Pointer<Void> list) {
+    if (!_isLoaded) return -1;
+    return _gpPortInfoListFree(list);
   }
 
   Pointer<Void>? createContext() {

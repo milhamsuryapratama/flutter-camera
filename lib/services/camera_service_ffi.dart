@@ -1,7 +1,7 @@
 import 'dart:ffi';
 import 'dart:typed_data';
 import 'package:ffi/ffi.dart';
-import 'dart:io';
+
 import '../gphoto2/gphoto2_ffi.dart';
 
 class CameraServiceFfi {
@@ -20,37 +20,75 @@ class CameraServiceFfi {
     if (!isInitialized)
       return "Library not initialized: ${_gphoto2.statusMessage}";
 
+    final sb = StringBuffer();
+
+    // 1. Probe Ports
+    try {
+      final listPtrRef = calloc<Pointer<Void>>();
+      int ret = _gphoto2.newPortInfoList(listPtrRef);
+      if (ret < 0) {
+        sb.writeln(
+          "Warning: Failed to create port list: ${_gphoto2.getResultAsString(ret)}",
+        );
+      } else {
+        final list = listPtrRef.value;
+        ret = _gphoto2.loadPortInfoList(list);
+        if (ret < 0) {
+          sb.writeln(
+            "Warning: Failed to load port list: ${_gphoto2.getResultAsString(ret)}",
+          );
+          // This usually means libgphoto2_port can't load its drivers
+        } else {
+          final count = _gphoto2.countPortInfoList(list);
+          sb.writeln("Found $count ports available to the library.");
+          if (count == 0) {
+            sb.writeln(
+              "CRITICAL: No ports found. This means the library cannot see USB ports.",
+            );
+            sb.writeln(
+              "Ensure you copied ALL DLLs, including `iolib.dll` or `usb.dll` if they exist in `libgphoto2_port` folder.",
+            );
+          }
+        }
+        _gphoto2.freePortInfoList(list);
+        calloc.free(listPtrRef);
+      }
+    } catch (e) {
+      sb.writeln("Exception probing ports: $e");
+    }
+
+    // 2. Detect Camera
     try {
       _cameraContext = _gphoto2.createContext();
-      if (_cameraContext == null) return "Failed to create context";
+      if (_cameraContext == null)
+        return "${sb.toString()}Failed to create context";
 
       final cameraPtr = calloc<Pointer<Void>>();
       int ret = _gphoto2.newCamera(cameraPtr);
       if (ret < 0) {
         calloc.free(cameraPtr);
-        return "gp_camera_new failed: $ret";
+        return "${sb.toString()}gp_camera_new failed: ${_gphoto2.getResultAsString(ret)}";
       }
 
       _camera = cameraPtr.value;
       calloc.free(cameraPtr);
 
+      // Attempt to init
       ret = _gphoto2.initCamera(_camera!, _cameraContext!);
       if (ret < 0) {
+        final errorStr = _gphoto2.getResultAsString(ret);
         // If init fails, we should free the camera
         _gphoto2.unrefCamera(_camera!);
         _camera = null;
-        return "No camera detected (Error $ret)";
+        return "${sb.toString()}No camera detected. Error: $ret ($errorStr)";
       }
 
       // If we got here, a camera was found and initialized
-      // We can get summary or just return success
-      // For now, let's close it to be safe unless we want to keep connection open
+      _closeCamera(); // Close for now
 
-      _closeCamera(); // Close for now, so we don't block other apps or subsequent calls
-
-      return "Camera Detected Successfully!";
+      return "${sb.toString()}Camera Detected Successfully!";
     } catch (e) {
-      return "Exception during detection: $e";
+      return "${sb.toString()}Exception during detection: $e";
     }
   }
 
