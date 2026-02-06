@@ -125,8 +125,13 @@ typedef GPPortInfoListFreeDart = int Function(Pointer<Void> list);
 typedef GPResultAsStringC = Pointer<Utf8> Function(Int32 result);
 typedef GPResultAsStringDart = Pointer<Utf8> Function(int result);
 
-// --- Wrapper Class ---
+// Environment Variables
+typedef SetEnvironmentVariableC =
+    Int32 Function(Pointer<Utf8> lpName, Pointer<Utf8> lpValue);
+typedef SetEnvironmentVariableDart =
+    int Function(Pointer<Utf8> lpName, Pointer<Utf8> lpValue);
 
+// --- Wrapper Class ---
 class GPhoto2 {
   late DynamicLibrary _lib;
   late DynamicLibrary _libPort;
@@ -167,9 +172,40 @@ class GPhoto2 {
     _loadLibrary();
   }
 
+  void _setEnv(String key, String value) {
+    if (!Platform.isWindows) return;
+    try {
+      // Bind kernel32.dll dynamically
+      final kernel32 = DynamicLibrary.open('kernel32.dll');
+      final setEnv = kernel32
+          .lookupFunction<SetEnvironmentVariableC, SetEnvironmentVariableDart>(
+            'SetEnvironmentVariableA',
+          );
+
+      final k = key.toNativeUtf8();
+      final v = value.toNativeUtf8();
+      setEnv(k, v);
+      calloc.free(k);
+      calloc.free(v);
+    } catch (e) {
+      print("Failed to set env var $key: $e");
+    }
+  }
+
   void _loadLibrary() {
     try {
       if (Platform.isWindows) {
+        // --- Fix for finding drivers ---
+        // Calculate absolute path to local lib folder
+        // We assume structure: build/windows/runner/Debug/lib/...
+        // Platform.resolvedExecutable points to the .exe in Debug/
+        final exeDir = File(Platform.resolvedExecutable).parent.path;
+        final libDir = "$exeDir\\lib";
+
+        // Use helper to set vars if directories exist
+        _setEnvIfDirExists("CAMLIBS", "$libDir\\gphoto2");
+        _setEnvIfDirExists("IOLIBS", "$libDir\\gphoto2_port");
+
         _lib = DynamicLibrary.open(_dllName);
         // Load the port library separately for port functions
         try {
@@ -268,6 +304,39 @@ class GPhoto2 {
     } catch (e) {
       _statusMessage = "Failed to load library or symbols: $e";
       _isLoaded = false;
+    }
+  }
+
+  void _setEnvIfDirExists(String key, String baseDir) {
+    // We look for the first child directory inside baseDir
+    // Because normally it is lib/gphoto2/2.5.23/
+    final dir = Directory(baseDir);
+    if (!dir.existsSync()) {
+      print("Warning: $baseDir does not exist. $key not set.");
+      return;
+    }
+
+    try {
+      // Find first subdirectory
+      final children = dir.listSync().whereType<Directory>().toList();
+      if (children.isNotEmpty) {
+        // Use the first one found (e.g. 2.5.23)
+        // Note: Sort to be deterministic?
+        children.sort(
+          (a, b) => a.path.compareTo(b.path),
+        ); // pick latest? or first.
+        // Usually there is only one version installed.
+        final target = children.last.path;
+        print("Setting $key via FFI to: $target");
+        _setEnv(key, target);
+      } else {
+        print(
+          "Warning: No version folder found in $baseDir. Setting $key to base.",
+        );
+        _setEnv(key, baseDir);
+      }
+    } catch (e) {
+      print("Error scanning for $key path: $e");
     }
   }
 
