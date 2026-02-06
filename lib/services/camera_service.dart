@@ -177,14 +177,19 @@ class CameraService {
 
         if (result.exitCode == 0) {
           final file = File(previewPath);
-          if (await file.exists()) {
+          final exists = await file.exists();
+          print('File exists: $exists, path: $previewPath');
+          if (exists) {
             final bytes = await file.readAsBytes();
+            print('File size: ${bytes.length} bytes');
             if (bytes.isNotEmpty) {
               frameCount++;
               if (frameCount <= 3) {
                 print('Preview frame $frameCount: ${bytes.length} bytes');
               }
               yield bytes;
+            } else {
+              print('File is empty!');
             }
           }
         } else {
