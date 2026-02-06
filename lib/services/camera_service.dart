@@ -147,85 +147,82 @@ class CameraService {
   Process? _previewProcess;
   bool _isPreviewing = false;
 
-  /// Starts live preview using --capture-preview in a loop.
-  /// This is more compatible than --capture-movie which has I/O issues on Windows.
+  /// Starts live preview using --capture-movie which streams MJPEG frames.
   Stream<List<int>> startPreview() async* {
     if (_isPreviewing) return;
     _isPreviewing = true;
 
     try {
-      print('Starting preview with capture-preview loop...');
+      print('Starting preview with capture-movie...');
 
-      // Use capture-preview in a loop instead of capture-movie
-      // This is slower but more compatible on Windows
+      _previewProcess = await Process.start('gphoto2', [
+        '--capture-movie',
+        '--stdout',
+      ], environment: _gphoto2Env);
+
+      final buffer = <int>[];
+      final startMarker = [0xFF, 0xD8]; // JPEG start
+      final endMarker = [0xFF, 0xD9]; // JPEG end
       int frameCount = 0;
-      while (_isPreviewing) {
-        final tempDir = Directory.systemTemp;
-        // Use simple path construction to avoid issues
-        final previewPath = '${tempDir.path}\\preview_temp.jpg';
 
-        print('Calling gphoto2 --capture-preview...');
-        print('Expected save path: $previewPath');
-
-        final result = await Process.run('gphoto2', [
-          '--capture-preview',
-          '--filename',
-          previewPath,
-          '--force-overwrite',
-        ], environment: _gphoto2Env);
-
-        print('gphoto2 returned with exit code: ${result.exitCode}');
-        print('stdout: ${result.stdout}');
-        print('stderr: ${result.stderr}');
-
+      await for (final chunk in _previewProcess!.stdout) {
         if (!_isPreviewing) break;
+        buffer.addAll(chunk);
 
-        if (result.exitCode == 0) {
-          // gphoto2 might save with thumb_ prefix, check both
-          final file = File(previewPath);
-          final thumbFile = File('${tempDir.path}\\thumb_preview_temp.jpg');
-
-          File? actualFile;
-          if (await file.exists()) {
-            actualFile = file;
-          } else if (await thumbFile.exists()) {
-            actualFile = thumbFile;
-            print('Found thumb_ prefixed file');
-          }
-
-          if (actualFile != null) {
-            final bytes = await actualFile.readAsBytes();
-            print('File size: ${bytes.length} bytes');
-            if (bytes.isNotEmpty) {
-              frameCount++;
-              if (frameCount <= 3) {
-                print('Preview frame $frameCount: ${bytes.length} bytes');
-              }
-              yield bytes;
-            } else {
-              print('File is empty!');
-            }
-          } else {
-            // List files in temp to see what was created
-            print(
-              'File not found at expected path. Checking current directory...',
-            );
-          }
-        } else {
-          final stderr = result.stderr.toString();
-          print('Preview failed: exit=${result.exitCode}, stderr=$stderr');
-          // Small delay before retry on error
-          await Future.delayed(const Duration(milliseconds: 500));
+        // Debug: log first few chunks
+        if (frameCount == 0 && buffer.length > 0 && buffer.length < 50000) {
+          print('Receiving data, buffer size: ${buffer.length}');
         }
 
-        // Small delay between frames to avoid overwhelming the camera
-        // Adjust this for your desired frame rate
-        await Future.delayed(const Duration(milliseconds: 100));
+        while (true) {
+          final startIndex = _findPattern(buffer, startMarker);
+          if (startIndex == -1) {
+            if (buffer.length > 2) {
+              final remaining = buffer.sublist(buffer.length - 2);
+              buffer.clear();
+              buffer.addAll(remaining);
+            }
+            break;
+          }
+
+          final endIndex = _findPattern(buffer, endMarker, startIndex + 2);
+          if (endIndex == -1) {
+            if (startIndex > 0) {
+              final remaining = buffer.sublist(startIndex);
+              buffer.clear();
+              buffer.addAll(remaining);
+            }
+            break;
+          }
+
+          // Full frame found
+          final frameEnd = endIndex + 2;
+          final jpegData = buffer.sublist(startIndex, frameEnd);
+
+          frameCount++;
+          if (frameCount <= 5) {
+            print('Frame $frameCount: ${jpegData.length} bytes');
+          }
+
+          yield jpegData;
+
+          final remaining = buffer.sublist(frameEnd);
+          buffer.clear();
+          buffer.addAll(remaining);
+        }
+      }
+
+      // Check for errors
+      final stderrOutput = await _previewProcess!.stderr
+          .transform(SystemEncoding().decoder)
+          .join();
+      if (stderrOutput.isNotEmpty) {
+        print('Preview stderr: $stderrOutput');
       }
     } catch (e) {
       print('Preview error: $e');
     } finally {
-      _isPreviewing = false;
+      await stopPreview();
     }
   }
 
