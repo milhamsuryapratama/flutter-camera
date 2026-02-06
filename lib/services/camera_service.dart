@@ -172,6 +172,8 @@ class CameraService {
           '--force-overwrite',
         ], environment: _gphoto2Env);
         print('gphoto2 returned with exit code: ${result.exitCode}');
+        print('stdout: ${result.stdout}');
+        print('stderr: ${result.stderr}');
 
         if (!_isPreviewing) break;
 
