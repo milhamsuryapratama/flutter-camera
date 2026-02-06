@@ -1,9 +1,19 @@
 import 'dart:io';
 
 class CameraService {
+  // MSYS2 gphoto2 paths - required for Windows
+  static final Map<String, String>? _gphoto2Env = Platform.isWindows
+      ? {
+          'CAMLIBS': 'C:\\msys64\\mingw64\\lib\\libgphoto2\\2.5.31',
+          'IOLIBS': 'C:\\msys64\\mingw64\\lib\\libgphoto2_port\\0.12.2',
+        }
+      : null;
+
   Future<String> detectCamera() async {
     try {
-      final result = await Process.run('gphoto2', ['--auto-detect']);
+      final result = await Process.run('gphoto2', [
+        '--auto-detect',
+      ], environment: _gphoto2Env);
       if (result.exitCode == 0) {
         return result.stdout.toString();
       } else {
@@ -16,7 +26,9 @@ class CameraService {
 
   Future<String> getSummary() async {
     try {
-      final result = await Process.run('gphoto2', ['--summary']);
+      final result = await Process.run('gphoto2', [
+        '--summary',
+      ], environment: _gphoto2Env);
       if (result.exitCode == 0) {
         return result.stdout.toString();
       } else {
@@ -42,7 +54,7 @@ class CameraService {
           '--filename',
           filePath,
           '--force-overwrite',
-        ]);
+        ], environment: _gphoto2Env);
 
         if (result.exitCode == 0) {
           // Verify file exists
@@ -128,7 +140,7 @@ class CameraService {
       _previewProcess = await Process.start('gphoto2', [
         '--capture-movie',
         '--stdout',
-      ]);
+      ], environment: _gphoto2Env);
 
       final buffer = <int>[];
       final startMarker = [0xFF, 0xD8];
