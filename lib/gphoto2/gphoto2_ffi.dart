@@ -1,18 +1,133 @@
 import 'dart:ffi';
 import 'dart:io';
+import 'package:ffi/ffi.dart';
 
-// Typedefs for the C functions
+// --- Typedefs ---
+
+// Enums / Constants
+const int GP_CAPTURE_IMAGE = 0;
+const int GP_CAPTURE_MOVIE = 1;
+const int GP_CAPTURE_SOUND = 2;
+
+// Context
 typedef GPContextNewC = Pointer<Void> Function();
 typedef GPContextNewDart = Pointer<Void> Function();
 
 typedef GPContextUnrefC = Void Function(Pointer<Void> context);
 typedef GPContextUnrefDart = void Function(Pointer<Void> context);
 
-// GPhoto2 Wrapper Class
+// Camera
+typedef GPCameraNewC = Int32 Function(Pointer<Pointer<Void>> camera);
+typedef GPCameraNewDart = int Function(Pointer<Pointer<Void>> camera);
+
+typedef GPCameraInitC =
+    Int32 Function(Pointer<Void> camera, Pointer<Void> context);
+typedef GPCameraInitDart =
+    int Function(Pointer<Void> camera, Pointer<Void> context);
+
+typedef GPCameraExitC =
+    Int32 Function(Pointer<Void> camera, Pointer<Void> context);
+typedef GPCameraExitDart =
+    int Function(Pointer<Void> camera, Pointer<Void> context);
+
+typedef GPCameraRefC = Int32 Function(Pointer<Void> camera);
+typedef GPCameraRefDart = int Function(Pointer<Void> camera);
+
+typedef GPCameraUnrefC = Int32 Function(Pointer<Void> camera);
+typedef GPCameraUnrefDart = int Function(Pointer<Void> camera);
+
+// Capture
+// int gp_camera_capture (Camera *camera, CameraCaptureType type, CameraFilePath *path, GPContext *context)
+// We need struct for CameraFilePath.
+// For FFI, we can define a Struct which matches CameraFilePath layout.
+// struct _CameraFilePath { char name[64]; char folder[1024]; };
+final class CameraFilePath extends Struct {
+  @Array(64)
+  external Array<Int8> name;
+
+  @Array(1024)
+  external Array<Int8> folder;
+}
+
+typedef GPCameraCaptureC =
+    Int32 Function(
+      Pointer<Void> camera,
+      Int32 captureType,
+      Pointer<CameraFilePath> path,
+      Pointer<Void> context,
+    );
+typedef GPCameraCaptureDart =
+    int Function(
+      Pointer<Void> camera,
+      int captureType,
+      Pointer<CameraFilePath> path,
+      Pointer<Void> context,
+    );
+
+// File
+typedef GPFileNewC = Int32 Function(Pointer<Pointer<Void>> file);
+typedef GPFileNewDart = int Function(Pointer<Pointer<Void>> file);
+
+typedef GPFileUnrefC = Int32 Function(Pointer<Void> file);
+typedef GPFileUnrefDart = int Function(Pointer<Void> file);
+
+// int gp_camera_file_get (Camera *camera, const char *folder, const char *file, CameraFileType type, CameraFile *camera_file, GPContext *context)
+// type: GP_FILE_TYPE_NORMAL = 1
+const int GP_FILE_TYPE_NORMAL = 1;
+
+typedef GPCameraFileGetC =
+    Int32 Function(
+      Pointer<Void> camera,
+      Pointer<Utf8> folder,
+      Pointer<Utf8> file,
+      Int32 type,
+      Pointer<Void> cameraFile,
+      Pointer<Void> context,
+    );
+typedef GPCameraFileGetDart =
+    int Function(
+      Pointer<Void> camera,
+      Pointer<Utf8> folder,
+      Pointer<Utf8> file,
+      int type,
+      Pointer<Void> cameraFile,
+      Pointer<Void> context,
+    );
+
+// int gp_file_get_data_and_size (CameraFile *file, const char **data, unsigned long int *size)
+typedef GPFileGetDataAndSizeC =
+    Int32 Function(
+      Pointer<Void> file,
+      Pointer<Pointer<Int8>> data,
+      Pointer<UnsignedLong> size,
+    );
+typedef GPFileGetDataAndSizeDart =
+    int Function(
+      Pointer<Void> file,
+      Pointer<Pointer<Int8>> data,
+      Pointer<UnsignedLong> size,
+    );
+
+// --- Wrapper Class ---
 class GPhoto2 {
   late DynamicLibrary _lib;
+  final String _dllName = 'libgphoto2-6.dll';
+
+  // Function pointers
   late GPContextNewDart _gpContextNew;
   late GPContextUnrefDart _gpContextUnref;
+
+  late GPCameraNewDart _gpCameraNew;
+  late GPCameraInitDart _gpCameraInit;
+  late GPCameraExitDart _gpCameraExit;
+  late GPCameraUnrefDart _gpCameraUnref;
+
+  late GPCameraCaptureDart _gpCameraCapture;
+
+  late GPFileNewDart _gpFileNew;
+  late GPFileUnrefDart _gpFileUnref;
+  late GPCameraFileGetDart _gpCameraFileGet;
+  late GPFileGetDataAndSizeDart _gpFileGetDataAndSize;
 
   bool _isLoaded = false;
   String _statusMessage = "Not Initialized";
@@ -20,19 +135,15 @@ class GPhoto2 {
   bool get isLoaded => _isLoaded;
   String get statusMessage => _statusMessage;
 
-  // Constructor that attempts to load the library
   GPhoto2() {
+    _loadLibrary();
+  }
+
+  void _loadLibrary() {
     try {
       if (Platform.isWindows) {
-        // Try to load the library.
-        // Note: libgphoto2-6.dll depends on libgphoto2_port-12.dll.
-        // Both need to be in the same directory or in the PATH.
-        // You might need to specify full path or ensure they are in build folder.
-        _lib = DynamicLibrary.open('libgphoto2-6.dll');
+        _lib = DynamicLibrary.open(_dllName);
       } else if (Platform.isMacOS) {
-        // Just for safety if we accidentally run on Mac during dev
-        // Assuming installed via brew or similiar if testing on mac
-        // But user specifically said windows DLLs.
         try {
           _lib = DynamicLibrary.open('libgphoto2.dylib');
         } catch (_) {
@@ -44,44 +155,142 @@ class GPhoto2 {
         return;
       }
 
-      // Lookup functions
-      try {
-        _gpContextNew = _lib
-            .lookup<NativeFunction<GPContextNewC>>('gp_context_new')
-            .asFunction();
+      // Context
+      _gpContextNew = _lib.lookupFunction<GPContextNewC, GPContextNewDart>(
+        'gp_context_new',
+      );
+      _gpContextUnref = _lib
+          .lookupFunction<GPContextUnrefC, GPContextUnrefDart>(
+            'gp_context_unref',
+          );
 
-        _gpContextUnref = _lib
-            .lookup<NativeFunction<GPContextUnrefC>>('gp_context_unref')
-            .asFunction();
+      // Camera
+      _gpCameraNew = _lib.lookupFunction<GPCameraNewC, GPCameraNewDart>(
+        'gp_camera_new',
+      );
+      _gpCameraInit = _lib.lookupFunction<GPCameraInitC, GPCameraInitDart>(
+        'gp_camera_init',
+      );
+      _gpCameraExit = _lib.lookupFunction<GPCameraExitC, GPCameraExitDart>(
+        'gp_camera_exit',
+      );
+      _gpCameraUnref = _lib.lookupFunction<GPCameraUnrefC, GPCameraUnrefDart>(
+        'gp_camera_unref',
+      );
 
-        _isLoaded = true;
-        _statusMessage = "Library Loaded Successfully";
-      } catch (e) {
-        _statusMessage = "Error lookig up symbols: $e";
-        _isLoaded = false;
-      }
+      // Capture
+      _gpCameraCapture = _lib
+          .lookupFunction<GPCameraCaptureC, GPCameraCaptureDart>(
+            'gp_camera_capture',
+          );
+
+      // File
+      _gpFileNew = _lib.lookupFunction<GPFileNewC, GPFileNewDart>(
+        'gp_file_new',
+      );
+      _gpFileUnref = _lib.lookupFunction<GPFileUnrefC, GPFileUnrefDart>(
+        'gp_file_unref',
+      );
+      _gpCameraFileGet = _lib
+          .lookupFunction<GPCameraFileGetC, GPCameraFileGetDart>(
+            'gp_camera_file_get',
+          );
+      _gpFileGetDataAndSize = _lib
+          .lookupFunction<GPFileGetDataAndSizeC, GPFileGetDataAndSizeDart>(
+            'gp_file_get_data_and_size',
+          );
+
+      _isLoaded = true;
+      _statusMessage = "Library Loaded Successfully";
     } catch (e) {
-      _statusMessage =
-          "Failed to load library: $e\nMake sure libgphoto2-6.dll and libgphoto2_port-12.dll are next to the executable.";
+      _statusMessage = "Failed to load library or symbols: $e";
       _isLoaded = false;
     }
   }
 
-  // Wrapper method to create a context
   Pointer<Void>? createContext() {
     if (!_isLoaded) return null;
-    try {
-      final context = _gpContextNew();
-      return context;
-    } catch (e) {
-      print("Error creating context: $e");
-      return null;
-    }
+    return _gpContextNew();
   }
 
-  // Wrapper method to unref/free a context
   void unrefContext(Pointer<Void> context) {
     if (!_isLoaded) return;
     _gpContextUnref(context);
+  }
+
+  // Camera operations
+  int newCamera(Pointer<Pointer<Void>> cameraPtr) {
+    if (!_isLoaded) return -1;
+    return _gpCameraNew(cameraPtr);
+  }
+
+  int initCamera(Pointer<Void> camera, Pointer<Void> context) {
+    if (!_isLoaded) return -1;
+    return _gpCameraInit(camera, context);
+  }
+
+  int exitCamera(Pointer<Void> camera, Pointer<Void> context) {
+    if (!_isLoaded) return -1;
+    return _gpCameraExit(camera, context);
+  }
+
+  int unrefCamera(Pointer<Void> camera) {
+    if (!_isLoaded) return -1;
+    return _gpCameraUnref(camera);
+  }
+
+  int capture(
+    Pointer<Void> camera,
+    int type,
+    Pointer<CameraFilePath> path,
+    Pointer<Void> context,
+  ) {
+    if (!_isLoaded) return -1;
+    return _gpCameraCapture(camera, type, path, context);
+  }
+
+  int newFile(Pointer<Pointer<Void>> filePtr) {
+    if (!_isLoaded) return -1;
+    return _gpFileNew(filePtr);
+  }
+
+  int unrefFile(Pointer<Void> file) {
+    if (!_isLoaded) return -1;
+    return _gpFileUnref(file);
+  }
+
+  int cameraFileGet(
+    Pointer<Void> camera,
+    String folder,
+    String file,
+    int type,
+    Pointer<Void> cameraFile,
+    Pointer<Void> context,
+  ) {
+    if (!_isLoaded) return -1;
+    final folderPtr = folder.toNativeUtf8();
+    final filePtr = file.toNativeUtf8();
+    try {
+      return _gpCameraFileGet(
+        camera,
+        folderPtr,
+        filePtr,
+        type,
+        cameraFile,
+        context,
+      );
+    } finally {
+      calloc.free(folderPtr);
+      calloc.free(filePtr);
+    }
+  }
+
+  int getFileDataAndSize(
+    Pointer<Void> file,
+    Pointer<Pointer<Int8>> data,
+    Pointer<UnsignedLong> size,
+  ) {
+    if (!_isLoaded) return -1;
+    return _gpFileGetDataAndSize(file, data, size);
   }
 }
