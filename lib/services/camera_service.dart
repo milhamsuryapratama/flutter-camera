@@ -158,17 +158,20 @@ class CameraService {
 
       // Use capture-preview in a loop instead of capture-movie
       // This is slower but more compatible on Windows
+      int frameCount = 0;
       while (_isPreviewing) {
         final tempDir = Directory.systemTemp;
         final previewPath =
             '${tempDir.path}${Platform.pathSeparator}preview_temp.jpg';
 
+        print('Calling gphoto2 --capture-preview...');
         final result = await Process.run('gphoto2', [
           '--capture-preview',
           '--filename',
           previewPath,
           '--force-overwrite',
         ], environment: _gphoto2Env);
+        print('gphoto2 returned with exit code: ${result.exitCode}');
 
         if (!_isPreviewing) break;
 
@@ -177,14 +180,16 @@ class CameraService {
           if (await file.exists()) {
             final bytes = await file.readAsBytes();
             if (bytes.isNotEmpty) {
+              frameCount++;
+              if (frameCount <= 3) {
+                print('Preview frame $frameCount: ${bytes.length} bytes');
+              }
               yield bytes;
             }
           }
         } else {
           final stderr = result.stderr.toString();
-          if (stderr.isNotEmpty) {
-            print('Preview capture failed: $stderr');
-          }
+          print('Preview failed: exit=${result.exitCode}, stderr=$stderr');
           // Small delay before retry on error
           await Future.delayed(const Duration(milliseconds: 500));
         }
