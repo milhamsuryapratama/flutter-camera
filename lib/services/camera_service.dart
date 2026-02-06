@@ -2,12 +2,17 @@ import 'dart:io';
 
 class CameraService {
   // MSYS2 gphoto2 paths - required for Windows
-  static final Map<String, String>? _gphoto2Env = Platform.isWindows
-      ? {
-          'CAMLIBS': 'C:\\msys64\\mingw64\\lib\\libgphoto2\\2.5.31',
-          'IOLIBS': 'C:\\msys64\\mingw64\\lib\\libgphoto2_port\\0.12.2',
-        }
-      : null;
+  // Merge with existing environment so we don't lose PATH
+  static Map<String, String>? _getGphoto2Env() {
+    if (!Platform.isWindows) return null;
+    return {
+      ...Platform.environment,
+      'CAMLIBS': 'C:\\msys64\\mingw64\\lib\\libgphoto2\\2.5.31',
+      'IOLIBS': 'C:\\msys64\\mingw64\\lib\\libgphoto2_port\\0.12.2',
+    };
+  }
+
+  static final Map<String, String>? _gphoto2Env = _getGphoto2Env();
 
   Future<String> detectCamera() async {
     try {
